@@ -44,6 +44,11 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         
         input::placeholder, textarea::placeholder { font-size: 0.8rem; opacity: 0.5; }
+
+        /* 表格样式优化 */
+        .history-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        .history-table th { position: sticky; top: 0; background: #f8fafc; z-index: 10; }
+        .history-table td, .history-table th { padding: 12px 8px; font-size: 11px; white-space: nowrap; border-bottom: 1px solid #f1f5f9; }
     </style>
 </head>
 <body class="text-slate-800">
@@ -110,11 +115,10 @@
                 </div>
             </section>
 
-            <!-- 每日记录 (NEW) -->
+            <!-- 每日记录 -->
             <section id="daily-log" class="hidden space-y-6 page-fade-in">
                 <h2 class="text-2xl font-black text-slate-800">今日身体记录</h2>
                 
-                <!-- 睡眠记录 -->
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
                     <h3 class="font-bold text-slate-700 flex items-center gap-2">🌙 睡眠情况</h3>
                     <div class="grid grid-cols-2 gap-4">
@@ -129,7 +133,6 @@
                     </div>
                 </div>
 
-                <!-- 饮食记录 -->
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
                     <h3 class="font-bold text-slate-700 flex items-center gap-2">🍎 饮食清单</h3>
                     <div class="space-y-3">
@@ -140,7 +143,6 @@
                     </div>
                 </div>
 
-                <!-- 运动记录 -->
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
                     <h3 class="font-bold text-slate-700 flex items-center gap-2">💪 运动表现</h3>
                     <textarea id="log-exercise-content" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs font-medium outline-none h-24" placeholder="今天做了什么运动？强度如何？例如：跑步 5km，配速 6'00''"></textarea>
@@ -149,14 +151,24 @@
                 <button onclick="saveDailyLog()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 active:scale-95 transition-all">保存今日记录</button>
             </section>
 
-            <!-- 历史数据 (UPGRADED) -->
+            <!-- 历史数据 (UPGRADED with Toggle) -->
             <section id="history" class="hidden space-y-6 page-fade-in">
                 <div class="flex items-center justify-between">
                     <h2 class="text-2xl font-black text-slate-800">历史回顾</h2>
-                    <span class="text-[10px] text-slate-400 font-bold">点击日期查看详情</span>
+                    <!-- 查看模式切换 -->
+                    <div class="flex p-1 bg-slate-100 rounded-xl">
+                        <button onclick="changeHistoryMode('card')" id="mode-card" class="p-1.5 rounded-lg transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                        </button>
+                        <button onclick="changeHistoryMode('table')" id="mode-table" class="p-1.5 rounded-lg transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                        </button>
+                    </div>
                 </div>
+
+                <!-- 内容容器 -->
                 <div id="history-container" class="space-y-4">
-                    <!-- 动态加载历史卡片 -->
+                    <!-- 动态加载 -->
                 </div>
             </section>
 
@@ -288,31 +300,29 @@
                 { id: 2, title: '空腹饮水 500ml', type: 'daily', time: '07:15', done: false }
             ],
             weightLogs: [{ date: '2024-01-01', weight: 70.0 }],
-            dailyLogs: {}, // 格式: { '2024-05-20': { sleep: {h:8, q:4}, diet: {b:'', l:'', d:'', s:''}, exercise: '' } }
+            dailyLogs: {},
             settings: { targetWeight: 65.0, apiKey: '' },
-            currentFilter: 'daily'
+            currentFilter: 'daily',
+            historyMode: 'card' // card 或 table
         };
 
         const FITNESS_TIPS = [
             "肌肉的密度比脂肪大，所以体重不降并不代表你没瘦，腰围更有参考价值。",
-            "空腹有氧能提高脂肪燃烧效率，但如果你感到头晕，请立即补充能量。",
             "力量训练能提高静息代谢率，让你在睡觉时也消耗更多热量。",
-            "睡眠不足会导致皮质醇上升，告诉你身体储存腹部脂肪。",
-            "蛋白质有较高的食物热效应，消化它需要消耗比脂肪更多的能量。"
+            "水是代谢的媒介。脱水会导致代谢率下降，每天保证 2-3 升水对减脂至关重要。",
+            "打破体重的‘调定点’需要时间，通常身体需要 3-6 个月才能适应一个新体重。"
         ];
 
-        let state = JSON.parse(localStorage.getItem('BODY_MASTER_DATA_V2')) || DEFAULT_STATE;
+        let state = JSON.parse(localStorage.getItem('BODY_MASTER_DATA_V3')) || DEFAULT_STATE;
 
         function saveToLocal() {
-            localStorage.setItem('BODY_MASTER_DATA_V2', JSON.stringify(state));
+            localStorage.setItem('BODY_MASTER_DATA_V3', JSON.stringify(state));
         }
 
-        // --- 获取今日日期字符串 ---
         function getTodayStr() {
             return new Date().toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g, '-');
         }
 
-        // --- 导航逻辑 ---
         function showSection(id) {
             ['dashboard', 'tasks', 'settings', 'ai-assistant', 'history', 'daily-log'].forEach(sec => {
                 const el = document.getElementById(sec);
@@ -322,9 +332,8 @@
             });
 
             document.getElementById(id).classList.remove('hidden');
-            const navId = id;
-            if (document.getElementById('nav-' + navId)) {
-                document.getElementById('nav-' + navId).classList.replace('text-slate-400', 'text-blue-600');
+            if (document.getElementById('nav-' + id)) {
+                document.getElementById('nav-' + id).classList.replace('text-slate-400', 'text-blue-600');
             }
             
             if (id === 'dashboard' && weightChart) setTimeout(() => weightChart.resize(), 50);
@@ -332,11 +341,125 @@
             if (id === 'daily-log') fillDailyLogInputs();
         }
 
-        // --- 记录今日日志 ---
+        // --- 查看模式切换 ---
+        function changeHistoryMode(mode) {
+            state.historyMode = mode;
+            saveToLocal();
+            renderHistory();
+        }
+
+        // --- 历史逻辑 ---
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            const modeCard = document.getElementById('mode-card');
+            const modeTable = document.getElementById('mode-table');
+
+            // 切换按钮高亮
+            if(state.historyMode === 'card') {
+                modeCard.className = 'p-1.5 rounded-lg transition-all bg-white shadow-sm text-blue-600';
+                modeTable.className = 'p-1.5 rounded-lg transition-all text-slate-400';
+            } else {
+                modeTable.className = 'p-1.5 rounded-lg transition-all bg-white shadow-sm text-blue-600';
+                modeCard.className = 'p-1.5 rounded-lg transition-all text-slate-400';
+            }
+
+            const allDates = new Set([
+                ...state.weightLogs.map(l => l.date),
+                ...Object.keys(state.dailyLogs)
+            ]);
+            const sortedDates = Array.from(allDates).sort().reverse();
+
+            if (sortedDates.length === 0) {
+                container.innerHTML = '<p class="text-center py-20 text-slate-300 font-bold">暂无历史记录</p>';
+                return;
+            }
+
+            if (state.historyMode === 'card') {
+                container.innerHTML = sortedDates.map(date => {
+                    const weightLog = state.weightLogs.find(l => l.date === date);
+                    const dailyLog = state.dailyLogs[date];
+                    return `
+                        <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3 page-fade-in">
+                            <div class="flex justify-between items-center" onclick="toggleHistoryDetail('${date}')">
+                                <div>
+                                    <span class="text-xs font-black text-slate-800">${date}</span>
+                                    <span class="ml-2 text-[10px] text-blue-600 font-bold uppercase tracking-wider">${weightLog ? weightLog.weight + 'kg' : ''}</span>
+                                </div>
+                                <svg id="icon-${date}" class="w-4 h-4 text-slate-300 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </div>
+                            <div id="detail-${date}" class="hidden space-y-4 pt-2 border-t border-slate-50">
+                                ${dailyLog?.sleep?.h ? `<div class="flex gap-2"><span class="text-[10px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full font-bold">睡眠</span><p class="text-[11px] text-slate-600">${dailyLog.sleep.h}h (质量:${dailyLog.sleep.q}/5)</p></div>` : ''}
+                                ${dailyLog?.exercise ? `<div class="flex gap-2"><span class="text-[10px] bg-green-50 text-green-500 px-2 py-0.5 rounded-full font-bold">运动</span><p class="text-[11px] text-slate-600">${dailyLog.exercise}</p></div>` : ''}
+                                ${dailyLog?.diet?.b || dailyLog?.diet?.l ? `<div class="space-y-1"><span class="text-[10px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded-full font-bold inline-block mb-1">饮食</span><p class="text-[11px] text-slate-500 ml-2">早: ${dailyLog.diet.b || '-'}</p><p class="text-[11px] text-slate-500 ml-2">午: ${dailyLog.diet.l || '-'}</p></div>` : ''}
+                                <button onclick="deleteHistoryDay('${date}')" class="text-[10px] text-red-300 font-bold block pt-2">删除记录</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                // 表格模式
+                container.innerHTML = `
+                    <div class="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm overflow-x-auto page-fade-in no-scrollbar">
+                        <table class="history-table">
+                            <thead>
+                                <tr class="bg-slate-50">
+                                    <th class="text-left">日期</th>
+                                    <th>体重</th>
+                                    <th>睡眠</th>
+                                    <th>饮食</th>
+                                    <th>运动</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sortedDates.map(date => {
+                                    const weightLog = state.weightLogs.find(l => l.date === date);
+                                    const dailyLog = state.dailyLogs[date];
+                                    const dietSummary = dailyLog ? [dailyLog.diet?.b, dailyLog.diet?.l, dailyLog.diet?.d].filter(x=>x).join(',') : '-';
+                                    return `
+                                        <tr>
+                                            <td class="font-bold text-slate-500">${date.slice(5)}</td>
+                                            <td class="font-black text-blue-600 text-center">${weightLog ? weightLog.weight : '--'}</td>
+                                            <td class="text-center text-slate-400">${dailyLog?.sleep?.h ? dailyLog.sleep.h + 'h' : '--'}</td>
+                                            <td class="max-w-[80px] truncate text-slate-400">${dietSummary || '--'}</td>
+                                            <td class="max-w-[80px] truncate text-slate-400">${dailyLog?.exercise || '--'}</td>
+                                            <td class="text-center">
+                                                <button onclick="deleteHistoryDay('${date}')" class="text-red-300">✕</button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        }
+
+        function toggleHistoryDetail(date) {
+            const el = document.getElementById(`detail-${date}`);
+            const icon = document.getElementById(`icon-${date}`);
+            if(!el || !icon) return;
+            const isHidden = el.classList.contains('hidden');
+            el.classList.toggle('hidden');
+            icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+
+        function deleteHistoryDay(date) {
+            if(confirm(`确定删除 ${date} 的所有记录吗？`)) {
+                state.weightLogs = state.weightLogs.filter(l => l.date !== date);
+                delete state.dailyLogs[date];
+                saveToLocal();
+                renderHistory();
+                renderDashboard();
+                if(weightChart) updateChart();
+            }
+        }
+
+        // --- 其它逻辑 ---
         function fillDailyLogInputs() {
             const today = getTodayStr();
             const log = state.dailyLogs[today] || { sleep: {h:'', q:''}, diet: {b:'', l:'', d:'', s:''}, exercise: '' };
-            
             document.getElementById('log-sleep-hours').value = log.sleep?.h || '';
             document.getElementById('log-sleep-quality').value = log.sleep?.q || '';
             document.getElementById('log-diet-breakfast').value = log.diet?.b || '';
@@ -349,132 +472,41 @@
         function saveDailyLog() {
             const today = getTodayStr();
             state.dailyLogs[today] = {
-                sleep: {
-                    h: document.getElementById('log-sleep-hours').value,
-                    q: document.getElementById('log-sleep-quality').value
-                },
-                diet: {
-                    b: document.getElementById('log-diet-breakfast').value,
-                    l: document.getElementById('log-diet-lunch').value,
-                    d: document.getElementById('log-diet-dinner').value,
-                    s: document.getElementById('log-diet-snack').value
-                },
+                sleep: { h: document.getElementById('log-sleep-hours').value, q: document.getElementById('log-sleep-quality').value },
+                diet: { b: document.getElementById('log-diet-breakfast').value, l: document.getElementById('log-diet-lunch').value, d: document.getElementById('log-diet-dinner').value, s: document.getElementById('log-diet-snack').value },
                 exercise: document.getElementById('log-exercise-content').value
             };
             saveToLocal();
-            showToast("今日身体记录已保存");
+            showToast("今日记录已同步");
             showSection('dashboard');
         }
 
-        // --- 渲染历史 ---
-        function renderHistory() {
-            const container = document.getElementById('history-container');
-            // 获取所有日期的并集
-            const allDates = new Set([
-                ...state.weightLogs.map(l => l.date),
-                ...Object.keys(state.dailyLogs)
-            ]);
-            const sortedDates = Array.from(allDates).sort().reverse();
-
-            container.innerHTML = sortedDates.map(date => {
-                const weightLog = state.weightLogs.find(l => l.date === date);
-                const dailyLog = state.dailyLogs[date];
-                
-                return `
-                    <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3">
-                        <div class="flex justify-between items-center" onclick="toggleHistoryDetail('${date}')">
-                            <div>
-                                <span class="text-xs font-black text-slate-800">${date}</span>
-                                <span class="ml-2 text-[10px] text-blue-600 font-bold uppercase tracking-wider">${weightLog ? weightLog.weight + 'kg' : ''}</span>
-                            </div>
-                            <svg id="icon-${date}" class="w-4 h-4 text-slate-300 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                        </div>
-                        
-                        <div id="detail-${date}" class="hidden space-y-4 pt-2 border-t border-slate-50">
-                            ${dailyLog?.sleep?.h ? `
-                                <div class="flex gap-2">
-                                    <span class="text-[10px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full font-bold">睡眠</span>
-                                    <p class="text-[11px] text-slate-600">${dailyLog.sleep.h}小时 (质量:${dailyLog.sleep.q}/5)</p>
-                                </div>
-                            ` : ''}
-                            
-                            ${dailyLog?.exercise ? `
-                                <div class="flex gap-2">
-                                    <span class="text-[10px] bg-green-50 text-green-500 px-2 py-0.5 rounded-full font-bold">运动</span>
-                                    <p class="text-[11px] text-slate-600">${dailyLog.exercise}</p>
-                                </div>
-                            ` : ''}
-
-                            ${dailyLog?.diet?.b || dailyLog?.diet?.l || dailyLog?.diet?.d ? `
-                                <div class="space-y-1">
-                                    <span class="text-[10px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded-full font-bold inline-block mb-1">饮食</span>
-                                    ${dailyLog.diet.b ? `<p class="text-[11px] text-slate-500 ml-2">· 早: ${dailyLog.diet.b}</p>` : ''}
-                                    ${dailyLog.diet.l ? `<p class="text-[11px] text-slate-500 ml-2">· 午: ${dailyLog.diet.l}</p>` : ''}
-                                    ${dailyLog.diet.d ? `<p class="text-[11px] text-slate-500 ml-2">· 晚: ${dailyLog.diet.d}</p>` : ''}
-                                </div>
-                            ` : ''}
-                            
-                            <button onclick="deleteHistoryDay('${date}')" class="text-[10px] text-red-300 font-bold block pt-2">删除此日所有数据</button>
-                        </div>
-                    </div>
-                `;
-            }).join('') || '<p class="text-center py-20 text-slate-300 font-bold">暂无历史记录</p>';
-        }
-
-        function toggleHistoryDetail(date) {
-            const el = document.getElementById(`detail-${date}`);
-            const icon = document.getElementById(`icon-${date}`);
-            const isHidden = el.classList.contains('hidden');
-            
-            el.classList.toggle('hidden');
-            icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-        }
-
-        function deleteHistoryDay(date) {
-            if(confirm(`确定删除 ${date} 的所有记录吗？`)) {
-                state.weightLogs = state.weightLogs.filter(l => l.date !== date);
-                delete state.dailyLogs[date];
-                saveToLocal();
-                renderHistory();
-                renderDashboard();
-                updateChart();
-            }
-        }
-
-        // --- 首页看板 ---
         function renderDashboard() {
             const done = state.tasks.filter(t => t.done).length;
             const rate = state.tasks.length > 0 ? Math.round((done / state.tasks.length) * 100) : 0;
             document.getElementById('execution-rate').innerText = rate + '%';
             document.getElementById('execution-bar').style.width = rate + '%';
-            
             const current = state.weightLogs[state.weightLogs.length - 1].weight;
             document.getElementById('current-weight-display').innerText = current ? current.toFixed(1) : '--';
-            
             const diff = (current - (state.weightLogs[state.weightLogs.length - 2]?.weight || current)).toFixed(1);
             const diffEl = document.getElementById('weight-diff');
             diffEl.innerText = diff > 0 ? `+${diff} kg` : diff < 0 ? `${diff} kg` : '持平';
             diffEl.className = `text-[10px] mt-2 font-black ${diff > 0 ? 'text-red-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-300'}`;
-
             document.getElementById('quick-tasks').innerHTML = state.tasks.filter(t => !t.done).map(t => `
                 <div class="flex-shrink-0 w-32 bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm" onclick="toggleTask(${t.id})">
                     <p class="text-[10px] font-black text-slate-800 truncate uppercase tracking-tight">${t.title}</p>
                     <p class="text-[9px] text-slate-300 font-bold mt-1">${t.time}</p>
                 </div>
-            `).join('') || '<p class="text-[10px] text-slate-300 font-bold p-4">今日计划已扫清!</p>';
+            `).join('') || '<p class="text-[10px] text-slate-300 font-bold p-4">今日已通关!</p>';
         }
 
-        // --- 其它逻辑 (通用) ---
         function renderTasks() {
             const list = document.getElementById('task-list');
             const filtered = state.tasks.filter(t => t.type === state.currentFilter);
             list.innerHTML = filtered.map(t => `
                 <div class="bg-white p-5 rounded-3xl flex items-center gap-4 shadow-sm" onclick="toggleTask(${t.id})">
                     <div class="w-6 h-6 rounded-full border-4 ${t.done ? 'bg-blue-600 border-blue-100' : 'border-slate-50'} transition-all"></div>
-                    <div class="flex-1">
-                        <p class="text-xs font-black text-slate-700 ${t.done ? 'task-done' : ''}">${t.title}</p>
-                        <p class="text-[9px] text-slate-300 font-bold uppercase">${t.time}</p>
-                    </div>
+                    <div class="flex-1"><p class="text-xs font-black text-slate-700 ${t.done ? 'task-done' : ''}">${t.title}</p><p class="text-[9px] text-slate-300 font-bold uppercase">${t.time}</p></div>
                     <button onclick="deleteTask(event, ${t.id})" class="text-slate-200 text-xs">✕</button>
                 </div>
             `).join('');
@@ -505,7 +537,9 @@
             const v = parseFloat(document.getElementById('new-weight-val').value);
             if(v > 0) {
                 const today = getTodayStr();
-                state.weightLogs.push({ date: today, weight: v });
+                const existingIndex = state.weightLogs.findIndex(l => l.date === today);
+                if(existingIndex > -1) state.weightLogs[existingIndex].weight = v;
+                else state.weightLogs.push({ date: today, weight: v });
                 if(state.weightLogs.length > 365) state.weightLogs.shift();
                 saveToLocal(); closeModal('weight-modal'); updateChart(); renderDashboard();
             }
@@ -514,7 +548,7 @@
         function saveSettings() {
             state.settings.targetWeight = parseFloat(document.getElementById('target-weight').value);
             state.settings.apiKey = document.getElementById('user-api-key').value;
-            saveToLocal(); showToast('配置已更新'); showSection('dashboard');
+            saveToLocal(); showToast('设置已保存'); showSection('dashboard');
         }
 
         function renderFitnessTip() {
@@ -522,7 +556,6 @@
             document.getElementById('fitness-tip-content').textContent = tip;
         }
 
-        // --- 初始化图表 ---
         function initChart() {
             const ctx = document.getElementById('weightChart').getContext('2d');
             weightChart = new Chart(ctx, {
@@ -540,25 +573,10 @@
             weightChart.update(); 
         }
 
-        // --- AI Mock / Bridge ---
-        async function callGemini(prompt) {
-            const key = state.settings.apiKey;
-            if (!key) return "请在设置中配置 API Key 以使用 AI 功能。";
-            // ... API call logic similar to previous version ...
-            return "AI 建议: 多喝水，保持充足睡眠，并在晚餐前进行 20 分钟轻量运动。";
-        }
-
-        async function generateDailyBrief() {
-            if(!state.settings.apiKey) return;
-            const brief = await callGemini("生成简短建议");
-            document.getElementById('ai-daily-brief').textContent = brief;
-        }
-
-        // --- UI Utilities ---
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); setTimeout(()=>document.getElementById(id).firstElementChild.classList.remove('translate-y-full', 'scale-90'), 10); }
         function closeModal(id) { document.getElementById(id).firstElementChild.classList.add('translate-y-full', 'scale-90'); setTimeout(()=>document.getElementById(id).classList.add('hidden'), 300); }
         function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.replace('opacity-0', 'opacity-100'); setTimeout(()=>t.classList.replace('opacity-100', 'opacity-0'), 2000); }
-        function resetApp() { if(confirm("确定要删除所有记录吗？")) { localStorage.clear(); location.reload(); } }
+        function resetApp() { if(confirm("确定要重置吗？")) { localStorage.clear(); location.reload(); } }
         function addWeightLog() { openModal('weight-modal'); }
 
         window.onload = () => {
