@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>身体掌控者 - 个人落地版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        :root { --app-max-width: 414px; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f1f5f9;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #app-container {
+            width: 100%;
+            max-width: var(--app-max-width);
+            background-color: #f8fafc;
+            position: relative;
+            min-height: 100vh;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        .fixed-in-container {
+            position: fixed;
+            width: 100%;
+            max-width: var(--app-max-width);
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .task-done { text-decoration: line-through; opacity: 0.5; }
+        .page-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .ai-glow { animation: glow 2s infinite alternate; }
+        @keyframes glow { from { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); } to { box-shadow: 0 0 15px rgba(59, 130, 246, 0.6); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div id="app-container">
+        <!-- 顶部导航 -->
+        <header class="fixed-in-container top-0 bg-white/90 backdrop-blur-md z-30 border-b border-slate-100 px-6 py-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Body Master</h1>
+                <p id="current-date" class="text-[10px] text-slate-400 font-bold uppercase tracking-wider"></p>
+            </div>
+            <button onclick="showSection('ai-assistant')" class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 ai-glow flex items-center justify-center active:scale-90 transition-transform">✨</button>
+        </header>
+
+        <!-- 内容区域 -->
+        <main class="pt-24 pb-32 px-4 flex-1 overflow-y-auto no-scrollbar">
+            
+            <!-- 首页看板 -->
+            <section id="dashboard" class="space-y-6 page-fade-in">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-blue-600 rounded-[2rem] p-5 text-white shadow-xl shadow-blue-100">
+                        <p class="text-[10px] font-bold opacity-70 mb-1 uppercase tracking-widest">Execution</p>
+                        <h2 id="execution-rate" class="text-3xl font-black">0%</h2>
+                        <div class="mt-4 w-full bg-white/20 rounded-full h-1">
+                            <div id="execution-bar" class="bg-white h-1 rounded-full transition-all duration-700" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+                        <p class="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-widest">Weight</p>
+                        <div class="flex items-baseline gap-1">
+                            <h2 id="current-weight-display" class="text-3xl font-black text-slate-800">--</h2>
+                            <span class="text-xs text-slate-400 font-bold">kg</span>
+                        </div>
+                        <p id="weight-diff" class="text-[10px] mt-2 font-bold"></p>
+                    </div>
+                </div>
+
+                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-3xl p-5 border border-blue-100">
+                    <div class="flex items-center gap-2 mb-2 text-blue-600">
+                        <span class="text-sm font-bold">✨ 今日 AI 建议</span>
+                    </div>
+                    <p id="ai-daily-brief" class="text-xs text-slate-600 leading-relaxed italic">设置 API Key 后即可获得 AI 深度点评...</p>
+                </div>
+
+                <div class="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-slate-700">趋势</h3>
+                        <button onclick="addWeightLog()" class="text-blue-600 text-xs font-bold bg-blue-50 px-3 py-1.5 rounded-full">记录体重</button>
+                    </div>
+                    <div class="relative h-44 w-full">
+                        <canvas id="weightChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center px-2">
+                        <h3 class="font-bold text-slate-700">待办</h3>
+                        <button onclick="showSection('tasks')" class="text-blue-600 text-[10px] font-bold uppercase tracking-widest">查看全部</button>
+                    </div>
+                    <div id="quick-tasks" class="flex gap-4 overflow-x-auto pb-2 px-1 no-scrollbar"></div>
+                </div>
+            </section>
+
+            <!-- 计划清单 -->
+            <section id="tasks" class="hidden space-y-6 page-fade-in">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-2xl font-black text-slate-800">计划清单</h2>
+                    <button onclick="openModal('task-modal')" class="bg-blue-600 text-white p-3 rounded-2xl shadow-lg active:scale-90 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                </div>
+                <div class="flex p-1 bg-slate-100 rounded-2xl">
+                    <button onclick="toggleTaskFilter('daily')" id="tab-daily" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-white shadow-sm text-blue-600 transition-all">日常</button>
+                    <button onclick="toggleTaskFilter('temp')" id="tab-temp" class="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 transition-all">临时</button>
+                </div>
+                <div id="task-list" class="space-y-3"></div>
+            </section>
+
+            <!-- AI 助手 -->
+            <section id="ai-assistant" class="hidden space-y-6 page-fade-in">
+                <div class="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 text-center">
+                    <div class="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center text-3xl mx-auto mb-4">✨</div>
+                    <h2 class="text-xl font-black">AI 智能教练</h2>
+                    <p class="text-xs text-slate-400 mt-2">基于 Gemini 2.5 为您分析身体密码</p>
+                </div>
+
+                <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-slate-700 flex items-center gap-2">🥗 饮食分析</h3>
+                        <span id="ai-diet-indicator" class="text-[10px] bg-amber-100 text-amber-600 px-2 py-0.5 rounded-md font-bold hidden">分析中</span>
+                    </div>
+                    <textarea id="ai-diet-input" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-medium outline-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="吃了什么？例如：午餐半碗米饭、一份清蒸鱼、一碗青菜..."></textarea>
+                    <button onclick="analyzeDiet()" id="btn-diet-ai" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 active:scale-95 transition-transform flex justify-center items-center gap-2 text-sm">
+                        <span>开始 AI 点评</span>
+                    </button>
+                    <div id="ai-diet-result" class="hidden text-xs text-slate-600 leading-relaxed bg-blue-50 p-4 rounded-2xl border border-blue-100"></div>
+                </div>
+
+                <button onclick="getBreakthroughAdvice()" id="btn-break-ai" class="w-full bg-slate-900 text-white py-5 rounded-3xl font-bold shadow-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2">
+                    ⚡ 破解体重锚点建议
+                </button>
+                <div id="ai-break-result" class="hidden text-xs text-slate-600 leading-relaxed bg-indigo-50 p-5 rounded-3xl border border-indigo-100"></div>
+            </section>
+
+            <!-- 设置 -->
+            <section id="settings" class="hidden space-y-6 page-fade-in">
+                <h2 class="text-2xl font-black text-slate-800">我的配置</h2>
+                
+                <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-6">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">目标体重 (kg)</label>
+                        <input type="number" id="target-weight" step="0.1" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-lg font-black outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Gemini API Key</label>
+                        <input type="password" id="user-api-key" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-100" placeholder="在此填入你的 API Key">
+                    </div>
+                    <button onclick="saveSettings()" class="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all">保存并应用</button>
+                </div>
+
+                <div class="bg-red-50 rounded-3xl p-6 border border-red-100">
+                    <p class="text-xs text-red-600 font-bold mb-3">数据管理</p>
+                    <button onclick="resetApp()" class="text-xs text-red-400 underline font-bold">重置应用并清除所有本地数据</button>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部导航 -->
+        <nav class="fixed-in-container bottom-0 bg-white/90 backdrop-blur-lg border-t border-slate-100 px-8 pt-3 pb-6 safe-bottom z-30">
+            <div class="flex justify-between items-center">
+                <button onclick="showSection('dashboard')" id="nav-dashboard" class="flex flex-col items-center gap-1 text-blue-600">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">首页</span>
+                </button>
+                <button onclick="showSection('tasks')" id="nav-tasks" class="flex flex-col items-center gap-1 text-slate-400">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">计划</span>
+                </button>
+                <button onclick="showSection('settings')" id="nav-settings" class="flex flex-col items-center gap-1 text-slate-400">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    <span class="text-[9px] font-black uppercase tracking-tighter">我的</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- 模态框：添加任务 -->
+        <div id="task-modal" class="absolute inset-0 bg-black/40 z-50 hidden flex items-end">
+            <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-6 transform translate-y-full transition-transform duration-300">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-xl font-black">新增计划</h3>
+                    <button onclick="closeModal('task-modal')" class="p-2 bg-slate-100 rounded-full text-slate-400">✕</button>
+                </div>
+                <div class="space-y-4">
+                    <input type="text" id="new-task-title" class="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none" placeholder="内容 (如: 晚餐不吃主食)">
+                    <div class="flex gap-4">
+                        <select id="new-task-type" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none">
+                            <option value="daily">每日惯例</option>
+                            <option value="temp">临时任务</option>
+                        </select>
+                        <input type="time" id="new-task-time" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none">
+                    </div>
+                    <button onclick="addTask()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg mt-4">确认</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="weight-modal" class="absolute inset-0 bg-black/40 z-50 hidden flex items-center justify-center p-6">
+            <div class="bg-white w-full max-w-xs rounded-[2.5rem] p-8 space-y-6 transform scale-90 transition-all">
+                <h3 class="text-lg font-black text-center">记录体重</h3>
+                <div class="relative">
+                    <input type="number" id="new-weight-val" step="0.1" class="w-full bg-slate-50 border-none rounded-3xl p-6 text-center text-4xl font-black text-blue-600 outline-none" placeholder="0.0">
+                    <span class="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 font-bold">kg</span>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="closeModal('weight-modal')" class="flex-1 py-4 rounded-2xl font-bold bg-slate-50 text-slate-400">取消</button>
+                    <button onclick="confirmWeight()" class="flex-1 py-4 rounded-2xl font-bold bg-blue-600 text-white shadow-lg">提交</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="toast" class="absolute top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full text-[10px] font-bold shadow-2xl opacity-0 transition-opacity pointer-events-none z-50 uppercase tracking-widest"></div>
+    </div>
+
+    <script>
+        // --- 核心状态与持久化逻辑 ---
+        const DEFAULT_STATE = {
+            tasks: [
+                { id: 1, title: '晨起称重', type: 'daily', time: '07:00', done: false },
+                { id: 2, title: '空腹饮水 500ml', type: 'daily', time: '07:15', done: false }
+            ],
+            weightLogs: [{ date: '2024-01-01', weight: 70.0 }],
+            settings: { targetWeight: 65.0, apiKey: '' },
+            currentFilter: 'daily'
+        };
+
+        let state = JSON.parse(localStorage.getItem('BODY_MASTER_DATA')) || DEFAULT_STATE;
+
+        function saveToLocal() {
+            localStorage.setItem('BODY_MASTER_DATA', JSON.stringify(state));
+        }
+
+        // --- Gemini API 模块 ---
+        async function callGemini(prompt, systemMsg = "你是一个专业的健康教练。请用 50 字以内给出建议。") {
+            const key = state.settings.apiKey;
+            if (!key) return "请先在“我的”页面设置 API Key。";
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${key}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemMsg }] }
+            };
+
+            try {
+                const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+                const data = await res.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "分析失败，请检查 Key 或网络。";
+            } catch (e) { return "网络错误，无法连接 AI。"; }
+        }
+
+        // --- UI 渲染逻辑 ---
+        let weightChart = null;
+
+        window.onload = () => {
+            const now = new Date();
+            document.getElementById('current-date').textContent = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' });
+            
+            document.getElementById('target-weight').value = state.settings.targetWeight;
+            document.getElementById('user-api-key').value = state.settings.apiKey;
+
+            renderDashboard();
+            renderTasks();
+            initChart();
+            generateDailyBrief();
+        };
+
+        function showSection(id) {
+            ['dashboard', 'tasks', 'settings', 'ai-assistant'].forEach(sec => {
+                const el = document.getElementById(sec);
+                if(el) el.classList.add('hidden');
+                const nav = document.getElementById('nav-' + (sec === 'ai-assistant' ? 'dashboard' : sec));
+                if(nav) nav.classList.replace('text-blue-600', 'text-slate-400');
+            });
+            document.getElementById(id).classList.remove('hidden');
+            if (id !== 'ai-assistant') document.getElementById('nav-' + id).classList.replace('text-slate-400', 'text-blue-600');
+            if (id === 'dashboard' && weightChart) setTimeout(() => weightChart.resize(), 50);
+        }
+
+        function renderDashboard() {
+            const done = state.tasks.filter(t => t.done).length;
+            const rate = state.tasks.length > 0 ? Math.round((done / state.tasks.length) * 100) : 0;
+            document.getElementById('execution-rate').innerText = rate + '%';
+            document.getElementById('execution-bar').style.width = rate + '%';
+            
+            const current = state.weightLogs[state.weightLogs.length - 1].weight;
+            document.getElementById('current-weight-display').innerText = current.toFixed(1);
+            
+            const diff = (current - (state.weightLogs[state.weightLogs.length - 2]?.weight || current)).toFixed(1);
+            const diffEl = document.getElementById('weight-diff');
+            diffEl.innerText = diff > 0 ? `+${diff} kg` : diff < 0 ? `${diff} kg` : 'UNCHANGED';
+            diffEl.className = `text-[10px] mt-2 font-black ${diff > 0 ? 'text-red-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-300'}`;
+
+            document.getElementById('quick-tasks').innerHTML = state.tasks.filter(t => !t.done).map(t => `
+                <div class="flex-shrink-0 w-32 bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm" onclick="toggleTask(${t.id})">
+                    <p class="text-[10px] font-black text-slate-800 truncate uppercase">${t.title}</p>
+                    <p class="text-[9px] text-slate-400 font-bold mt-1">${t.time}</p>
+                </div>
+            `).join('') || '<p class="text-[10px] text-slate-300 font-bold p-4">ALL TASKS DONE!</p>';
+        }
+
+        async function generateDailyBrief() {
+            if (!state.settings.apiKey) return;
+            const cur = state.weightLogs[state.weightLogs.length-1].weight;
+            const res = await callGemini(`体重${cur}kg, 目标${state.settings.targetWeight}kg, 今日完成${state.tasks.filter(t=>t.done).length}个任务。请鼓励我。`);
+            document.getElementById('ai-daily-brief').textContent = res;
+        }
+
+        function toggleTaskFilter(type) {
+            state.currentFilter = type;
+            document.getElementById('tab-daily').className = `flex-1 py-2.5 rounded-xl text-xs font-bold ${type==='daily'?'bg-white shadow-sm text-blue-600':'text-slate-500'}`;
+            document.getElementById('tab-temp').className = `flex-1 py-2.5 rounded-xl text-xs font-bold ${type==='temp'?'bg-white shadow-sm text-blue-600':'text-slate-500'}`;
+            renderTasks();
+        }
+
+        function renderTasks() {
+            const list = document.getElementById('task-list');
+            const filtered = state.tasks.filter(t => t.type === state.currentFilter);
+            list.innerHTML = filtered.map(t => `
+                <div class="bg-white p-5 rounded-3xl flex items-center gap-4 shadow-sm" onclick="toggleTask(${t.id})">
+                    <div class="w-6 h-6 rounded-full border-4 ${t.done ? 'bg-blue-600 border-blue-100' : 'border-slate-50'} transition-all"></div>
+                    <div class="flex-1">
+                        <p class="text-xs font-black text-slate-700 ${t.done ? 'task-done' : ''}">${t.title}</p>
+                        <p class="text-[9px] text-slate-300 font-bold uppercase">${t.time}</p>
+                    </div>
+                    <button onclick="deleteTask(event, ${t.id})" class="text-slate-200 text-xs">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function toggleTask(id) {
+            const t = state.tasks.find(x => x.id === id);
+            if(t) { t.done = !t.done; saveToLocal(); renderTasks(); renderDashboard(); }
+        }
+
+        function addTask() {
+            const title = document.getElementById('new-task-title').value;
+            if(!title) return;
+            state.tasks.push({ id: Date.now(), title, type: document.getElementById('new-task-type').value, time: document.getElementById('new-task-time').value || '--:--', done: false });
+            saveToLocal(); closeModal('task-modal'); renderTasks(); renderDashboard();
+        }
+
+        function deleteTask(e, id) { e.stopPropagation(); state.tasks = state.tasks.filter(t => t.id !== id); saveToLocal(); renderTasks(); renderDashboard(); }
+
+        function saveSettings() {
+            state.settings.targetWeight = parseFloat(document.getElementById('target-weight').value);
+            state.settings.apiKey = document.getElementById('user-api-key').value;
+            saveToLocal(); showToast('设置已同步'); showSection('dashboard'); generateDailyBrief();
+        }
+
+        function confirmWeight() {
+            const v = parseFloat(document.getElementById('new-weight-val').value);
+            if(v > 0) {
+                state.weightLogs.push({ date: new Date().toLocaleDateString(), weight: v });
+                if(state.weightLogs.length > 10) state.weightLogs.shift();
+                saveToLocal(); closeModal('weight-modal'); updateChart(); renderDashboard(); generateDailyBrief();
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('weightChart').getContext('2d');
+            weightChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.weightLogs.map(l => l.date.slice(-5)),
+                    datasets: [{ data: state.weightLogs.map(l => l.weight), borderColor: '#2563eb', borderWidth: 4, tension: 0.4, fill: false, pointRadius: 0 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { display: false }, x: { grid: { display: false }, ticks: { font: { size: 8, weight: 'bold' }, color: '#cbd5e1' } } } }
+            });
+        }
+        function updateChart() { weightChart.data.labels = state.weightLogs.map(l => l.date.slice(-5)); weightChart.data.datasets[0].data = state.weightLogs.map(l => l.weight); weightChart.update(); }
+
+        async function analyzeDiet() {
+            const inp = document.getElementById('ai-diet-input').value;
+            if(!inp) return;
+            const resEl = document.getElementById('ai-diet-result');
+            resEl.classList.remove('hidden');
+            resEl.textContent = "AI 正在计算营养成分...";
+            const res = await callGemini(`我吃了：${inp}。请评价热量和均衡度。`);
+            resEl.textContent = res;
+        }
+
+        async function getBreakthroughAdvice() {
+            const resEl = document.getElementById('ai-break-result');
+            resEl.classList.remove('hidden');
+            resEl.textContent = "分析最近体重趋势中...";
+            const res = await callGemini("我感觉遇到了体重锚点，请根据我的记录给我一个突破方案。");
+            resEl.textContent = res;
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); setTimeout(()=>document.getElementById(id).firstElementChild.classList.remove('translate-y-full', 'scale-90'), 10); }
+        function closeModal(id) { document.getElementById(id).firstElementChild.classList.add('translate-y-full', 'scale-90'); setTimeout(()=>document.getElementById(id).classList.add('hidden'), 300); }
+        function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.replace('opacity-0', 'opacity-100'); setTimeout(()=>t.classList.replace('opacity-100', 'opacity-0'), 2000); }
+        function resetApp() { if(confirm("确定要删除所有记录吗？")) { localStorage.clear(); location.reload(); } }
+        function addWeightLog() { openModal('weight-modal'); }
+    </script>
+</body>
+</html>
