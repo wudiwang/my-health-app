@@ -3,9 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>身体掌控者 - 全能记录版</title>
+    <title>身体掌控者 - 云端同步版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 获取环境配置
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'body-master-v1';
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // 全局状态管理（与原逻辑集成）
+        window.cloudSync = {
+            user: null,
+            status: '离线',
+            init: async () => {
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                };
+                await initAuth();
+                
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        window.cloudSync.user = user;
+                        window.cloudSync.status = '云端已连接';
+                        document.getElementById('sync-status').innerText = '☁️ ' + user.uid.slice(0, 8);
+                        // 初始加载云端数据
+                        loadFromCloud(user.uid);
+                    }
+                });
+            },
+            save: async (data) => {
+                if (!window.cloudSync.user) return;
+                const userRef = doc(db, 'artifacts', appId, 'users', window.cloudSync.user.uid, 'settings', 'data');
+                await setDoc(userRef, data, { merge: true });
+            }
+        };
+
+        async function loadFromCloud(uid) {
+            const userRef = doc(db, 'artifacts', appId, 'users', uid, 'settings', 'data');
+            const docSnap = await getDoc(userRef);
+            if (docSnap.exists()) {
+                const cloudData = docSnap.data();
+                // 合并逻辑：如果本地没有，则使用云端
+                window.state = { ...window.state, ...cloudData };
+                window.updateAllUI();
+            }
+        }
+
+        window.cloudSync.init();
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         :root { --app-max-width: 414px; }
@@ -42,10 +99,6 @@
         .ai-glow { animation: glow 2s infinite alternate; }
         @keyframes glow { from { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); } to { box-shadow: 0 0 15px rgba(59, 130, 246, 0.6); } }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        
-        input::placeholder, textarea::placeholder { font-size: 0.8rem; opacity: 0.5; }
-
-        /* 表格样式优化 */
         .history-table { width: 100%; border-collapse: separate; border-spacing: 0; }
         .history-table th { position: sticky; top: 0; background: #f8fafc; z-index: 10; }
         .history-table td, .history-table th { padding: 12px 8px; font-size: 11px; white-space: nowrap; border-bottom: 1px solid #f1f5f9; }
@@ -60,12 +113,14 @@
                 <h1 class="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Body Master</h1>
                 <p id="current-date" class="text-[10px] text-slate-400 font-bold uppercase tracking-wider"></p>
             </div>
-            <button onclick="showSection('ai-assistant')" class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 ai-glow flex items-center justify-center active:scale-90 transition-transform">✨</button>
+            <div class="flex items-center gap-2">
+                <span id="sync-status" class="text-[9px] font-bold text-slate-300 bg-slate-50 px-2 py-1 rounded-full">未登录</span>
+                <button onclick="showSection('ai-assistant')" class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 ai-glow flex items-center justify-center active:scale-90 transition-transform">✨</button>
+            </div>
         </header>
 
         <!-- 内容区域 -->
         <main class="pt-24 pb-32 px-4 flex-1 overflow-y-auto no-scrollbar">
-            
             <!-- 首页看板 -->
             <section id="dashboard" class="space-y-6 page-fade-in">
                 <div class="grid grid-cols-2 gap-4">
@@ -86,7 +141,6 @@
                     </div>
                 </div>
 
-                <!-- 健身小知识卡片 -->
                 <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 relative overflow-hidden group">
                     <div class="flex items-center gap-2 mb-2 text-blue-600">
                         <span class="text-xs font-bold uppercase tracking-widest">💡 健身贴士</span>
@@ -117,211 +171,146 @@
 
             <!-- 每日记录 -->
             <section id="daily-log" class="hidden space-y-6 page-fade-in">
-                <h2 class="text-2xl font-black text-slate-800">今日身体记录</h2>
-                
+                <h2 class="text-2xl font-black text-slate-800">今日记录</h2>
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
-                    <h3 class="font-bold text-slate-700 flex items-center gap-2">🌙 睡眠情况</h3>
+                    <h3 class="font-bold text-slate-700 flex items-center gap-2">🌙 睡眠</h3>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold uppercase mb-1 block">时长 (小时)</label>
-                            <input type="number" id="log-sleep-hours" step="0.5" class="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" placeholder="如: 7.5">
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-400 font-bold uppercase mb-1 block">质量评分 (1-5)</label>
-                            <input type="number" id="log-sleep-quality" min="1" max="5" class="w-full bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" placeholder="1-5">
-                        </div>
+                        <input type="number" id="log-sleep-hours" step="0.5" class="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" placeholder="时长(h)">
+                        <input type="number" id="log-sleep-quality" min="1" max="5" class="bg-slate-50 border-none rounded-xl p-3 text-sm font-bold outline-none" placeholder="质量(1-5)">
                     </div>
                 </div>
-
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
-                    <h3 class="font-bold text-slate-700 flex items-center gap-2">🍎 饮食清单</h3>
+                    <h3 class="font-bold text-slate-700 flex items-center gap-2">🍎 饮食</h3>
                     <div class="space-y-3">
-                        <input type="text" id="log-diet-breakfast" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs font-medium outline-none" placeholder="早餐: 吃了什么？">
-                        <input type="text" id="log-diet-lunch" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs font-medium outline-none" placeholder="午餐: 吃了什么？">
-                        <input type="text" id="log-diet-dinner" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs font-medium outline-none" placeholder="晚餐: 吃了什么？">
-                        <input type="text" id="log-diet-snack" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs font-medium outline-none" placeholder="加餐/零食: 吃了什么？">
+                        <input type="text" id="log-diet-breakfast" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs outline-none" placeholder="早餐">
+                        <input type="text" id="log-diet-lunch" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs outline-none" placeholder="午餐">
+                        <input type="text" id="log-diet-dinner" class="w-full bg-slate-50 border-none rounded-xl p-3 text-xs outline-none" placeholder="晚餐">
                     </div>
                 </div>
-
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
-                    <h3 class="font-bold text-slate-700 flex items-center gap-2">💪 运动表现</h3>
-                    <textarea id="log-exercise-content" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs font-medium outline-none h-24" placeholder="今天做了什么运动？强度如何？例如：跑步 5km，配速 6'00''"></textarea>
+                    <h3 class="font-bold text-slate-700 flex items-center gap-2">💪 运动</h3>
+                    <textarea id="log-exercise-content" class="w-full bg-slate-50 border-none rounded-xl p-4 text-xs outline-none h-24" placeholder="运动详情..."></textarea>
                 </div>
-
-                <button onclick="saveDailyLog()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 active:scale-95 transition-all">保存今日记录</button>
+                <button onclick="saveDailyLog()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg">保存并备份</button>
             </section>
 
-            <!-- 历史数据 (UPGRADED with Toggle) -->
+            <!-- 历史回顾 -->
             <section id="history" class="hidden space-y-6 page-fade-in">
                 <div class="flex items-center justify-between">
-                    <h2 class="text-2xl font-black text-slate-800">历史回顾</h2>
-                    <!-- 查看模式切换 -->
+                    <h2 class="text-2xl font-black text-slate-800">历史</h2>
                     <div class="flex p-1 bg-slate-100 rounded-xl">
-                        <button onclick="changeHistoryMode('card')" id="mode-card" class="p-1.5 rounded-lg transition-all">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-                        </button>
-                        <button onclick="changeHistoryMode('table')" id="mode-table" class="p-1.5 rounded-lg transition-all">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-                        </button>
+                        <button onclick="changeHistoryMode('card')" id="mode-card" class="p-1.5 rounded-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></button>
+                        <button onclick="changeHistoryMode('table')" id="mode-table" class="p-1.5 rounded-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
                     </div>
                 </div>
-
-                <!-- 内容容器 -->
-                <div id="history-container" class="space-y-4">
-                    <!-- 动态加载 -->
-                </div>
+                <div id="history-container" class="space-y-4"></div>
             </section>
 
             <!-- 计划清单 -->
             <section id="tasks" class="hidden space-y-6 page-fade-in">
-                <div class="flex items-center justify-between mb-2">
-                    <h2 class="text-2xl font-black text-slate-800">计划清单</h2>
-                    <button onclick="openModal('task-modal')" class="bg-blue-600 text-white p-3 rounded-2xl shadow-lg active:scale-90 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    </button>
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-black text-slate-800">清单</h2>
+                    <button onclick="openModal('task-modal')" class="bg-blue-600 text-white p-3 rounded-2xl shadow-lg">添加</button>
                 </div>
                 <div class="flex p-1 bg-slate-100 rounded-2xl">
-                    <button onclick="toggleTaskFilter('daily')" id="tab-daily" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-white shadow-sm text-blue-600 transition-all">日常</button>
-                    <button onclick="toggleTaskFilter('temp')" id="tab-temp" class="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 transition-all">临时</button>
+                    <button onclick="toggleTaskFilter('daily')" id="tab-daily" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-white text-blue-600">日常</button>
+                    <button onclick="toggleTaskFilter('temp')" id="tab-temp" class="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500">临时</button>
                 </div>
                 <div id="task-list" class="space-y-3"></div>
             </section>
 
-            <!-- AI 助手 -->
-            <section id="ai-assistant" class="hidden space-y-6 page-fade-in">
-                <div class="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 text-center">
-                    <div class="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center text-3xl mx-auto mb-4">✨</div>
-                    <h2 class="text-xl font-black">AI 智能教练</h2>
-                    <p class="text-xs text-slate-400 mt-2">基于 Gemini 2.5 为您分析身体密码</p>
-                </div>
-
-                <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
-                    <div class="flex items-center justify-between">
-                        <h3 class="font-bold text-slate-700 flex items-center gap-2">🥗 饮食分析</h3>
-                    </div>
-                    <textarea id="ai-diet-input" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-medium outline-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="吃了什么？AI 会分析热量和均衡度..."></textarea>
-                    <button onclick="analyzeDiet()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 active:scale-95 transition-transform flex justify-center items-center gap-2 text-sm">开始 AI 点评</button>
-                    <div id="ai-diet-result" class="hidden text-xs text-slate-600 leading-relaxed bg-blue-50 p-4 rounded-2xl border border-blue-100"></div>
-                </div>
-
-                <button onclick="getBreakthroughAdvice()" class="w-full bg-slate-900 text-white py-5 rounded-3xl font-bold shadow-xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2">⚡ 破解体重锚点建议</button>
-                <div id="ai-break-result" class="hidden text-xs text-slate-600 leading-relaxed bg-indigo-50 p-5 rounded-3xl border border-indigo-100"></div>
-            </section>
-
             <!-- 设置 -->
             <section id="settings" class="hidden space-y-6 page-fade-in">
-                <h2 class="text-2xl font-black text-slate-800">设置</h2>
+                <h2 class="text-2xl font-black text-slate-800">我的</h2>
                 <div class="bg-white rounded-3xl p-6 border border-slate-100 space-y-6">
                     <div>
-                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">目标体重 (kg)</label>
-                        <input type="number" id="target-weight" step="0.1" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-lg font-black outline-none">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">目标体重 (kg)</label>
+                        <input type="number" id="target-weight" step="0.1" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-lg font-black">
                     </div>
                     <div>
-                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Gemini API Key</label>
-                        <input type="password" id="user-api-key" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium outline-none" placeholder="在此填入你的 API Key">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Gemini API Key</label>
+                        <input type="password" id="user-api-key" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm">
                     </div>
-                    <button onclick="saveSettings()" class="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all">保存并应用</button>
-                </div>
-                <div class="bg-red-50 rounded-3xl p-6 border border-red-100">
-                    <button onclick="resetApp()" class="text-xs text-red-400 underline font-bold">重置应用并清除所有本地数据</button>
+                    <button onclick="saveSettings()" class="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold">保存同步</button>
                 </div>
             </section>
         </main>
 
         <!-- 底部导航 -->
         <nav class="fixed-in-container bottom-0 bg-white/90 backdrop-blur-lg border-t border-slate-100 px-6 pt-3 pb-6 safe-bottom z-30">
-            <div class="flex justify-between items-center">
-                <button onclick="showSection('dashboard')" id="nav-dashboard" class="flex-1 flex flex-col items-center gap-1 text-blue-600">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-                    <span class="text-[9px] font-black uppercase tracking-tighter">首页</span>
-                </button>
-                <button onclick="showSection('daily-log')" id="nav-daily-log" class="flex-1 flex flex-col items-center gap-1 text-slate-400">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    <span class="text-[9px] font-black uppercase tracking-tighter">记录</span>
-                </button>
-                <button onclick="showSection('tasks')" id="nav-tasks" class="flex-1 flex flex-col items-center gap-1 text-slate-400">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>
-                    <span class="text-[9px] font-black uppercase tracking-tighter">计划</span>
-                </button>
-                <button onclick="showSection('history')" id="nav-history" class="flex-1 flex flex-col items-center gap-1 text-slate-400">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span class="text-[9px] font-black uppercase tracking-tighter">历史</span>
-                </button>
-                <button onclick="showSection('settings')" id="nav-settings" class="flex-1 flex flex-col items-center gap-1 text-slate-400">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-                    <span class="text-[9px] font-black uppercase tracking-tighter">我的</span>
-                </button>
+            <div class="flex justify-between items-center text-slate-400">
+                <button onclick="showSection('dashboard')" id="nav-dashboard" class="flex-1 flex flex-col items-center gap-1 text-blue-600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="text-[9px] font-black uppercase">首页</span></button>
+                <button onclick="showSection('daily-log')" id="nav-daily-log" class="flex-1 flex flex-col items-center gap-1"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span class="text-[9px] font-black uppercase">记录</span></button>
+                <button onclick="showSection('tasks')" id="nav-tasks" class="flex-1 flex flex-col items-center gap-1"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg><span class="text-[9px] font-black uppercase">计划</span></button>
+                <button onclick="showSection('history')" id="nav-history" class="flex-1 flex flex-col items-center gap-1"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span class="text-[9px] font-black uppercase">历史</span></button>
+                <button onclick="showSection('settings')" id="nav-settings" class="flex-1 flex flex-col items-center gap-1"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="text-[9px] font-black uppercase">我的</span></button>
             </div>
         </nav>
 
-        <!-- 任务模态框 -->
+        <!-- 弹窗 -->
         <div id="task-modal" class="absolute inset-0 bg-black/40 z-50 hidden flex items-end">
-            <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-6 transform translate-y-full transition-transform duration-300">
-                <div class="flex justify-between items-center">
-                    <h3 class="text-xl font-black">新增计划</h3>
-                    <button onclick="closeModal('task-modal')" class="p-2 bg-slate-100 rounded-full text-slate-400">✕</button>
+            <div class="bg-white w-full rounded-t-[3rem] p-8 space-y-6 transform translate-y-full transition-transform">
+                <input type="text" id="new-task-title" class="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold" placeholder="计划内容">
+                <div class="flex gap-4">
+                    <select id="new-task-type" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold"><option value="daily">日常</option><option value="temp">临时</option></select>
+                    <input type="time" id="new-task-time" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold">
                 </div>
-                <div class="space-y-4">
-                    <input type="text" id="new-task-title" class="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none" placeholder="内容 (如: 晚上不吃主食)">
-                    <div class="flex gap-4">
-                        <select id="new-task-type" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none">
-                            <option value="daily">每日惯例</option>
-                            <option value="temp">临时任务</option>
-                        </select>
-                        <input type="time" id="new-task-time" class="flex-1 bg-slate-50 border-none rounded-2xl p-4 font-bold outline-none">
-                    </div>
-                    <button onclick="addTask()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold mt-4">确认</button>
-                </div>
+                <button onclick="addTask()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold">确认</button>
+                <button onclick="closeModal('task-modal')" class="w-full text-slate-400 font-bold">取消</button>
             </div>
         </div>
 
         <div id="weight-modal" class="absolute inset-0 bg-black/40 z-50 hidden flex items-center justify-center p-6">
-            <div class="bg-white w-full max-w-xs rounded-[2.5rem] p-8 space-y-6 transform scale-90 transition-all">
-                <h3 class="text-lg font-black text-center">记录体重</h3>
-                <div class="relative">
-                    <input type="number" id="new-weight-val" step="0.1" class="w-full bg-slate-50 border-none rounded-3xl p-6 text-center text-4xl font-black text-blue-600 outline-none" placeholder="0.0">
-                    <span class="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 font-bold">kg</span>
-                </div>
+            <div class="bg-white w-full max-w-xs rounded-[2.5rem] p-8 space-y-6 transform scale-90">
+                <input type="number" id="new-weight-val" step="0.1" class="w-full bg-slate-50 border-none rounded-3xl p-6 text-center text-4xl font-black text-blue-600 outline-none" placeholder="0.0">
                 <div class="flex gap-3">
-                    <button onclick="closeModal('weight-modal')" class="flex-1 py-4 rounded-2xl font-bold bg-slate-50 text-slate-400">取消</button>
-                    <button onclick="confirmWeight()" class="flex-1 py-4 rounded-2xl font-bold bg-blue-600 text-white shadow-lg">提交</button>
+                    <button onclick="closeModal('weight-modal')" class="flex-1 py-4 bg-slate-50 text-slate-400 font-bold rounded-2xl">取消</button>
+                    <button onclick="confirmWeight()" class="flex-1 py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg">提交</button>
                 </div>
             </div>
         </div>
 
-        <div id="toast" class="absolute top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full text-[10px] font-bold shadow-2xl opacity-0 transition-opacity pointer-events-none z-50 uppercase tracking-widest"></div>
+        <div id="toast" class="absolute top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full text-[10px] font-bold shadow-2xl opacity-0 transition-opacity pointer-events-none z-50"></div>
     </div>
 
     <script>
-        // --- 核心状态 ---
+        // --- 状态逻辑 ---
         const DEFAULT_STATE = {
-            tasks: [
-                { id: 1, title: '晨起称重', type: 'daily', time: '07:00', done: false },
-                { id: 2, title: '空腹饮水 500ml', type: 'daily', time: '07:15', done: false }
-            ],
+            tasks: [{ id: 1, title: '晨起称重', type: 'daily', time: '07:00', done: false }],
             weightLogs: [{ date: '2024-01-01', weight: 70.0 }],
             dailyLogs: {},
             settings: { targetWeight: 65.0, apiKey: '' },
             currentFilter: 'daily',
-            historyMode: 'card' // card 或 table
+            historyMode: 'card'
         };
 
         const FITNESS_TIPS = [
-            "肌肉的密度比脂肪大，所以体重不降并不代表你没瘦，腰围更有参考价值。",
-            "力量训练能提高静息代谢率，让你在睡觉时也消耗更多热量。",
-            "水是代谢的媒介。脱水会导致代谢率下降，每天保证 2-3 升水对减脂至关重要。",
-            "打破体重的‘调定点’需要时间，通常身体需要 3-6 个月才能适应一个新体重。"
+            "肌肉的密度比脂肪大，腰围更有参考价值。",
+            "力量训练能提高静息代谢，让你睡着也能瘦。",
+            "水是代谢的媒介。脱水会导致代谢率下降。",
+            "睡眠充足有助于肌肉恢复和脂肪代谢。"
         ];
 
-        let state = JSON.parse(localStorage.getItem('BODY_MASTER_DATA_V3')) || DEFAULT_STATE;
+        window.state = JSON.parse(localStorage.getItem('BODY_MASTER_CLOUD')) || DEFAULT_STATE;
 
-        function saveToLocal() {
-            localStorage.setItem('BODY_MASTER_DATA_V3', JSON.stringify(state));
+        function saveState() {
+            localStorage.setItem('BODY_MASTER_CLOUD', JSON.stringify(window.state));
+            if (window.cloudSync && window.cloudSync.save) {
+                window.cloudSync.save(window.state);
+            }
         }
 
         function getTodayStr() {
             return new Date().toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g, '-');
         }
+
+        // --- UI 集成 ---
+        window.updateAllUI = () => {
+            renderDashboard();
+            renderTasks();
+            if(weightChart) updateChart();
+            renderHistory();
+        };
 
         function showSection(id) {
             ['dashboard', 'tasks', 'settings', 'ai-assistant', 'history', 'daily-log'].forEach(sec => {
@@ -330,264 +319,130 @@
                 const nav = document.getElementById('nav-' + sec);
                 if(nav) nav.classList.replace('text-blue-600', 'text-slate-400');
             });
-
             document.getElementById(id).classList.remove('hidden');
             if (document.getElementById('nav-' + id)) {
                 document.getElementById('nav-' + id).classList.replace('text-slate-400', 'text-blue-600');
             }
-            
             if (id === 'dashboard' && weightChart) setTimeout(() => weightChart.resize(), 50);
             if (id === 'history') renderHistory();
             if (id === 'daily-log') fillDailyLogInputs();
         }
 
-        // --- 查看模式切换 ---
         function changeHistoryMode(mode) {
-            state.historyMode = mode;
-            saveToLocal();
+            window.state.historyMode = mode;
+            saveState();
             renderHistory();
         }
 
-        // --- 历史逻辑 ---
         function renderHistory() {
             const container = document.getElementById('history-container');
             const modeCard = document.getElementById('mode-card');
             const modeTable = document.getElementById('mode-table');
 
-            // 切换按钮高亮
-            if(state.historyMode === 'card') {
-                modeCard.className = 'p-1.5 rounded-lg transition-all bg-white shadow-sm text-blue-600';
-                modeTable.className = 'p-1.5 rounded-lg transition-all text-slate-400';
-            } else {
-                modeTable.className = 'p-1.5 rounded-lg transition-all bg-white shadow-sm text-blue-600';
-                modeCard.className = 'p-1.5 rounded-lg transition-all text-slate-400';
-            }
+            modeCard.className = window.state.historyMode === 'card' ? 'p-1.5 rounded-lg bg-white shadow-sm text-blue-600' : 'p-1.5 rounded-lg text-slate-400';
+            modeTable.className = window.state.historyMode === 'table' ? 'p-1.5 rounded-lg bg-white shadow-sm text-blue-600' : 'p-1.5 rounded-lg text-slate-400';
 
-            const allDates = new Set([
-                ...state.weightLogs.map(l => l.date),
-                ...Object.keys(state.dailyLogs)
-            ]);
-            const sortedDates = Array.from(allDates).sort().reverse();
+            const allDates = Array.from(new Set([...window.state.weightLogs.map(l => l.date), ...Object.keys(window.state.dailyLogs)])).sort().reverse();
 
-            if (sortedDates.length === 0) {
-                container.innerHTML = '<p class="text-center py-20 text-slate-300 font-bold">暂无历史记录</p>';
-                return;
-            }
-
-            if (state.historyMode === 'card') {
-                container.innerHTML = sortedDates.map(date => {
-                    const weightLog = state.weightLogs.find(l => l.date === date);
-                    const dailyLog = state.dailyLogs[date];
+            if (window.state.historyMode === 'card') {
+                container.innerHTML = allDates.map(date => {
+                    const weightLog = window.state.weightLogs.find(l => l.date === date);
+                    const dailyLog = window.state.dailyLogs[date];
                     return `
-                        <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3 page-fade-in">
-                            <div class="flex justify-between items-center" onclick="toggleHistoryDetail('${date}')">
-                                <div>
-                                    <span class="text-xs font-black text-slate-800">${date}</span>
-                                    <span class="ml-2 text-[10px] text-blue-600 font-bold uppercase tracking-wider">${weightLog ? weightLog.weight + 'kg' : ''}</span>
-                                </div>
-                                <svg id="icon-${date}" class="w-4 h-4 text-slate-300 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3">
+                            <div class="flex justify-between items-center" onclick="toggleDetail('${date}')">
+                                <span class="text-xs font-black text-slate-800">${date}</span>
+                                <span class="text-xs text-blue-600 font-bold">${weightLog ? weightLog.weight + 'kg' : ''}</span>
                             </div>
-                            <div id="detail-${date}" class="hidden space-y-4 pt-2 border-t border-slate-50">
-                                ${dailyLog?.sleep?.h ? `<div class="flex gap-2"><span class="text-[10px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full font-bold">睡眠</span><p class="text-[11px] text-slate-600">${dailyLog.sleep.h}h (质量:${dailyLog.sleep.q}/5)</p></div>` : ''}
-                                ${dailyLog?.exercise ? `<div class="flex gap-2"><span class="text-[10px] bg-green-50 text-green-500 px-2 py-0.5 rounded-full font-bold">运动</span><p class="text-[11px] text-slate-600">${dailyLog.exercise}</p></div>` : ''}
-                                ${dailyLog?.diet?.b || dailyLog?.diet?.l ? `<div class="space-y-1"><span class="text-[10px] bg-orange-50 text-orange-500 px-2 py-0.5 rounded-full font-bold inline-block mb-1">饮食</span><p class="text-[11px] text-slate-500 ml-2">早: ${dailyLog.diet.b || '-'}</p><p class="text-[11px] text-slate-500 ml-2">午: ${dailyLog.diet.l || '-'}</p></div>` : ''}
-                                <button onclick="deleteHistoryDay('${date}')" class="text-[10px] text-red-300 font-bold block pt-2">删除记录</button>
+                            <div id="det-${date}" class="hidden pt-2 border-t text-[11px] space-y-2">
+                                ${dailyLog?.sleep?.h ? `<div>睡眠: ${dailyLog.sleep.h}h</div>` : ''}
+                                ${dailyLog?.exercise ? `<div>运动: ${dailyLog.exercise}</div>` : ''}
+                                <button onclick="deleteDay('${date}')" class="text-red-300">删除记录</button>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                 }).join('');
             } else {
-                // 表格模式
-                container.innerHTML = `
-                    <div class="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm overflow-x-auto page-fade-in no-scrollbar">
-                        <table class="history-table">
-                            <thead>
-                                <tr class="bg-slate-50">
-                                    <th class="text-left">日期</th>
-                                    <th>体重</th>
-                                    <th>睡眠</th>
-                                    <th>饮食</th>
-                                    <th>运动</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${sortedDates.map(date => {
-                                    const weightLog = state.weightLogs.find(l => l.date === date);
-                                    const dailyLog = state.dailyLogs[date];
-                                    const dietSummary = dailyLog ? [dailyLog.diet?.b, dailyLog.diet?.l, dailyLog.diet?.d].filter(x=>x).join(',') : '-';
-                                    return `
-                                        <tr>
-                                            <td class="font-bold text-slate-500">${date.slice(5)}</td>
-                                            <td class="font-black text-blue-600 text-center">${weightLog ? weightLog.weight : '--'}</td>
-                                            <td class="text-center text-slate-400">${dailyLog?.sleep?.h ? dailyLog.sleep.h + 'h' : '--'}</td>
-                                            <td class="max-w-[80px] truncate text-slate-400">${dietSummary || '--'}</td>
-                                            <td class="max-w-[80px] truncate text-slate-400">${dailyLog?.exercise || '--'}</td>
-                                            <td class="text-center">
-                                                <button onclick="deleteHistoryDay('${date}')" class="text-red-300">✕</button>
-                                            </td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+                container.innerHTML = `<div class="bg-white rounded-3xl overflow-hidden border overflow-x-auto"><table class="history-table"><thead><tr class="bg-slate-50"><th>日期</th><th>体重</th><th>睡眠</th><th>饮食</th><th>操作</th></tr></thead><tbody>${allDates.map(date => {
+                    const weightLog = window.state.weightLogs.find(l => l.date === date);
+                    const dailyLog = window.state.dailyLogs[date];
+                    return `<tr><td>${date.slice(5)}</td><td class="text-blue-600">${weightLog ? weightLog.weight : '--'}</td><td>${dailyLog?.sleep?.h ? dailyLog.sleep.h + 'h' : '--'}</td><td class="max-w-[80px] truncate">${dailyLog?.exercise || '--'}</td><td><button onclick="deleteDay('${date}')">✕</button></td></tr>`;
+                }).join('')}</tbody></table></div>`;
             }
         }
 
-        function toggleHistoryDetail(date) {
-            const el = document.getElementById(`detail-${date}`);
-            const icon = document.getElementById(`icon-${date}`);
-            if(!el || !icon) return;
-            const isHidden = el.classList.contains('hidden');
-            el.classList.toggle('hidden');
-            icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-        }
+        function toggleDetail(date) { const el = document.getElementById(`det-${date}`); if(el) el.classList.toggle('hidden'); }
+        function deleteDay(date) { if(confirm("确定删除？")) { window.state.weightLogs = window.state.weightLogs.filter(l => l.date !== date); delete window.state.dailyLogs[date]; saveState(); renderHistory(); renderDashboard(); } }
 
-        function deleteHistoryDay(date) {
-            if(confirm(`确定删除 ${date} 的所有记录吗？`)) {
-                state.weightLogs = state.weightLogs.filter(l => l.date !== date);
-                delete state.dailyLogs[date];
-                saveToLocal();
-                renderHistory();
-                renderDashboard();
-                if(weightChart) updateChart();
-            }
-        }
-
-        // --- 其它逻辑 ---
         function fillDailyLogInputs() {
             const today = getTodayStr();
-            const log = state.dailyLogs[today] || { sleep: {h:'', q:''}, diet: {b:'', l:'', d:'', s:''}, exercise: '' };
+            const log = window.state.dailyLogs[today] || {};
             document.getElementById('log-sleep-hours').value = log.sleep?.h || '';
-            document.getElementById('log-sleep-quality').value = log.sleep?.q || '';
             document.getElementById('log-diet-breakfast').value = log.diet?.b || '';
-            document.getElementById('log-diet-lunch').value = log.diet?.l || '';
-            document.getElementById('log-diet-dinner').value = log.diet?.d || '';
-            document.getElementById('log-diet-snack').value = log.diet?.s || '';
             document.getElementById('log-exercise-content').value = log.exercise || '';
         }
 
         function saveDailyLog() {
             const today = getTodayStr();
-            state.dailyLogs[today] = {
-                sleep: { h: document.getElementById('log-sleep-hours').value, q: document.getElementById('log-sleep-quality').value },
-                diet: { b: document.getElementById('log-diet-breakfast').value, l: document.getElementById('log-diet-lunch').value, d: document.getElementById('log-diet-dinner').value, s: document.getElementById('log-diet-snack').value },
+            window.state.dailyLogs[today] = {
+                sleep: { h: document.getElementById('log-sleep-hours').value },
+                diet: { b: document.getElementById('log-diet-breakfast').value },
                 exercise: document.getElementById('log-exercise-content').value
             };
-            saveToLocal();
-            showToast("今日记录已同步");
+            saveState();
+            showToast("同步成功");
             showSection('dashboard');
         }
 
         function renderDashboard() {
-            const done = state.tasks.filter(t => t.done).length;
-            const rate = state.tasks.length > 0 ? Math.round((done / state.tasks.length) * 100) : 0;
+            const done = window.state.tasks.filter(t => t.done).length;
+            const rate = window.state.tasks.length > 0 ? Math.round((done / window.state.tasks.length) * 100) : 0;
             document.getElementById('execution-rate').innerText = rate + '%';
             document.getElementById('execution-bar').style.width = rate + '%';
-            const current = state.weightLogs[state.weightLogs.length - 1].weight;
+            const current = window.state.weightLogs[window.state.weightLogs.length - 1].weight;
             document.getElementById('current-weight-display').innerText = current ? current.toFixed(1) : '--';
-            const diff = (current - (state.weightLogs[state.weightLogs.length - 2]?.weight || current)).toFixed(1);
-            const diffEl = document.getElementById('weight-diff');
-            diffEl.innerText = diff > 0 ? `+${diff} kg` : diff < 0 ? `${diff} kg` : '持平';
-            diffEl.className = `text-[10px] mt-2 font-black ${diff > 0 ? 'text-red-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-300'}`;
-            document.getElementById('quick-tasks').innerHTML = state.tasks.filter(t => !t.done).map(t => `
-                <div class="flex-shrink-0 w-32 bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm" onclick="toggleTask(${t.id})">
-                    <p class="text-[10px] font-black text-slate-800 truncate uppercase tracking-tight">${t.title}</p>
-                    <p class="text-[9px] text-slate-300 font-bold mt-1">${t.time}</p>
-                </div>
-            `).join('') || '<p class="text-[10px] text-slate-300 font-bold p-4">今日已通关!</p>';
+            document.getElementById('quick-tasks').innerHTML = window.state.tasks.filter(t => !t.done).map(t => `<div class="flex-shrink-0 w-32 bg-white p-4 rounded-3xl border" onclick="toggleTask(${t.id})"><p class="text-[10px] font-black">${t.title}</p></div>`).join('') || '<p class="p-4 text-xs text-slate-300">通关!</p>';
         }
 
-        function renderTasks() {
-            const list = document.getElementById('task-list');
-            const filtered = state.tasks.filter(t => t.type === state.currentFilter);
-            list.innerHTML = filtered.map(t => `
-                <div class="bg-white p-5 rounded-3xl flex items-center gap-4 shadow-sm" onclick="toggleTask(${t.id})">
-                    <div class="w-6 h-6 rounded-full border-4 ${t.done ? 'bg-blue-600 border-blue-100' : 'border-slate-50'} transition-all"></div>
-                    <div class="flex-1"><p class="text-xs font-black text-slate-700 ${t.done ? 'task-done' : ''}">${t.title}</p><p class="text-[9px] text-slate-300 font-bold uppercase">${t.time}</p></div>
-                    <button onclick="deleteTask(event, ${t.id})" class="text-slate-200 text-xs">✕</button>
-                </div>
-            `).join('');
-        }
+        function toggleTask(id) { const t = window.state.tasks.find(x => x.id === id); if(t) { t.done = !t.done; saveState(); renderDashboard(); renderTasks(); } }
+        function addTask() { const title = document.getElementById('new-task-title').value; if(!title) return; window.state.tasks.push({ id: Date.now(), title, type: document.getElementById('new-task-type').value, time: document.getElementById('new-task-time').value, done: false }); saveState(); closeModal('task-modal'); renderTasks(); renderDashboard(); }
+        function deleteTask(e, id) { e.stopPropagation(); window.state.tasks = window.state.tasks.filter(t => t.id !== id); saveState(); renderTasks(); renderDashboard(); }
+        function confirmWeight() { const v = parseFloat(document.getElementById('new-weight-val').value); if(v > 0) { const today = getTodayStr(); const idx = window.state.weightLogs.findIndex(l => l.date === today); if(idx > -1) window.state.weightLogs[idx].weight = v; else window.state.weightLogs.push({ date: today, weight: v }); saveState(); closeModal('weight-modal'); updateChart(); renderDashboard(); } }
+        function saveSettings() { window.state.settings.targetWeight = parseFloat(document.getElementById('target-weight').value); window.state.settings.apiKey = document.getElementById('user-api-key').value; saveState(); showToast('设置同步'); showSection('dashboard'); }
 
-        function toggleTask(id) {
-            const t = state.tasks.find(x => x.id === id);
-            if(t) { t.done = !t.done; saveToLocal(); renderTasks(); renderDashboard(); }
-        }
-
-        function addTask() {
-            const title = document.getElementById('new-task-title').value;
-            if(!title) return;
-            state.tasks.push({ id: Date.now(), title, type: document.getElementById('new-task-type').value, time: document.getElementById('new-task-time').value || '--:--', done: false });
-            saveToLocal(); closeModal('task-modal'); renderTasks(); renderDashboard();
-        }
-
-        function deleteTask(e, id) { e.stopPropagation(); state.tasks = state.tasks.filter(t => t.id !== id); saveToLocal(); renderTasks(); renderDashboard(); }
-
-        function toggleTaskFilter(type) {
-            state.currentFilter = type;
-            document.getElementById('tab-daily').className = `flex-1 py-2.5 rounded-xl text-xs font-bold ${type==='daily'?'bg-white shadow-sm text-blue-600':'text-slate-500'}`;
-            document.getElementById('tab-temp').className = `flex-1 py-2.5 rounded-xl text-xs font-bold ${type==='temp'?'bg-white shadow-sm text-blue-600':'text-slate-500'}`;
-            renderTasks();
-        }
-
-        function confirmWeight() {
-            const v = parseFloat(document.getElementById('new-weight-val').value);
-            if(v > 0) {
-                const today = getTodayStr();
-                const existingIndex = state.weightLogs.findIndex(l => l.date === today);
-                if(existingIndex > -1) state.weightLogs[existingIndex].weight = v;
-                else state.weightLogs.push({ date: today, weight: v });
-                if(state.weightLogs.length > 365) state.weightLogs.shift();
-                saveToLocal(); closeModal('weight-modal'); updateChart(); renderDashboard();
-            }
-        }
-
-        function saveSettings() {
-            state.settings.targetWeight = parseFloat(document.getElementById('target-weight').value);
-            state.settings.apiKey = document.getElementById('user-api-key').value;
-            saveToLocal(); showToast('设置已保存'); showSection('dashboard');
-        }
-
-        function renderFitnessTip() {
-            const tip = FITNESS_TIPS[Math.floor(Math.random() * FITNESS_TIPS.length)];
-            document.getElementById('fitness-tip-content').textContent = tip;
-        }
-
+        let weightChart = null;
         function initChart() {
             const ctx = document.getElementById('weightChart').getContext('2d');
-            weightChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: state.weightLogs.slice(-14).map(l => l.date.slice(-5)),
-                    datasets: [{ data: state.weightLogs.slice(-14).map(l => l.weight), borderColor: '#2563eb', borderWidth: 4, tension: 0.4, fill: false, pointRadius: 0 }]
-                },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { display: false }, x: { grid: { display: false }, ticks: { font: { size: 8, weight: 'bold' }, color: '#cbd5e1' } } } }
-            });
+            weightChart = new Chart(ctx, { type: 'line', data: { labels: window.state.weightLogs.slice(-10).map(l => l.date.slice(-5)), datasets: [{ data: window.state.weightLogs.slice(-10).map(l => l.weight), borderColor: '#2563eb', borderWidth: 4, tension: 0.4, fill: false, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { display: false }, x: { grid: { display: false }, ticks: { font: { size: 8 } } } } } });
         }
         function updateChart() { 
-            weightChart.data.labels = state.weightLogs.slice(-14).map(l => l.date.slice(-5)); 
-            weightChart.data.datasets[0].data = state.weightLogs.slice(-14).map(l => l.weight); 
+            if(!weightChart) return;
+            weightChart.data.labels = window.state.weightLogs.slice(-10).map(l => l.date.slice(-5)); 
+            weightChart.data.datasets[0].data = window.state.weightLogs.slice(-10).map(l => l.weight); 
             weightChart.update(); 
         }
-
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); setTimeout(()=>document.getElementById(id).firstElementChild.classList.remove('translate-y-full', 'scale-90'), 10); }
         function closeModal(id) { document.getElementById(id).firstElementChild.classList.add('translate-y-full', 'scale-90'); setTimeout(()=>document.getElementById(id).classList.add('hidden'), 300); }
         function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.replace('opacity-0', 'opacity-100'); setTimeout(()=>t.classList.replace('opacity-100', 'opacity-0'), 2000); }
-        function resetApp() { if(confirm("确定要重置吗？")) { localStorage.clear(); location.reload(); } }
+        function resetApp() { if(confirm("重置吗？")) { localStorage.clear(); location.reload(); } }
         function addWeightLog() { openModal('weight-modal'); }
+        function renderTasks() { const list = document.getElementById('task-list'); list.innerHTML = window.state.tasks.map(t => `<div class="bg-white p-5 rounded-3xl flex items-center gap-4" onclick="toggleTask(${t.id})"><div class="w-6 h-6 rounded-full border-4 ${t.done ? 'bg-blue-600 border-blue-100' : 'border-slate-50'}"></div><div class="flex-1"><p class="text-xs font-black ${t.done ? 'task-done' : ''}">${t.title}</p></div><button onclick="deleteTask(event, ${t.id})">✕</button></div>`).join(''); }
+
+        // 定义 renderFitnessTip 函数
+        function renderFitnessTip() {
+            const tipEl = document.getElementById('fitness-tip-content');
+            if (tipEl && FITNESS_TIPS.length > 0) {
+                const randomTip = FITNESS_TIPS[Math.floor(Math.random() * FITNESS_TIPS.length)];
+                tipEl.innerText = randomTip;
+            }
+        }
 
         window.onload = () => {
-            const now = new Date();
-            document.getElementById('current-date').textContent = now.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
-            document.getElementById('target-weight').value = state.settings.targetWeight;
-            document.getElementById('user-api-key').value = state.settings.apiKey;
-            renderDashboard();
-            renderTasks();
-            renderFitnessTip();
+            document.getElementById('current-date').textContent = new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
+            document.getElementById('target-weight').value = window.state.settings.targetWeight;
+            document.getElementById('user-api-key').value = window.state.settings.apiKey;
+            window.updateAllUI();
             initChart();
+            renderFitnessTip(); // 现在该函数已定义
         };
     </script>
 </body>
